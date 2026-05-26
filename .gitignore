@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Build / distribution
+build/
+dist/
+*.spec
+*.exe
+
+# Environment & secrets
+.env
+config.json
+
+# Translation data (user files)
+*.uexp.csv
+*_standard.csv
+*_translated.csv
+*_restored.csv
+*.mapping.json
+*.tmp
+input.csv
+output_translated.csv
+
+# Testing
+.pytest_cache/
+
+# Claude Code
+.claude/

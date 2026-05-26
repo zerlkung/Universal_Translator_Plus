@@ -1,0 +1,569 @@
+import csv
+import time
+import requests
+import os
+import re
+import json
+import threading
+
+class TranslatorEngine:
+    def __init__(self, log_callback=None, progress_callback=None):
+        self.log_callback = log_callback
+        self.progress_callback = progress_callback
+        self.is_running = False
+        self._worker_thread = None
+        self._lock = threading.Lock()
+
+    def log(self, message, level="INFO"):
+        formatted_msg = f"[{level}] {message}"
+        if self.log_callback:
+            self.log_callback(formatted_msg)
+        else:
+            print(formatted_msg)
+
+    def _detect_encoding(self, file_path):
+        with open(file_path, 'rb') as f:
+            bom = f.read(4)
+        if bom.startswith(b'\xff\xfe') or bom.startswith(b'\xfe\xff'):
+            return 'utf-16'
+        if bom.startswith(b'\xef\xbb\xbf'):
+            return 'utf-8-sig'
+        return 'utf-8'
+
+    def _read_file(self, file_path, mode='r'):
+        for enc in [self._detect_encoding(file_path), 'utf-8', 'latin-1']:
+            try:
+                f = open(file_path, mode, encoding=enc)
+                f.readline()
+                f.seek(0)
+                return f
+            except (UnicodeDecodeError, UnicodeError):
+                continue
+        return open(file_path, mode, encoding='latin-1')
+
+    def detect_delimiter(self, file_path):
+        try:
+            with self._read_file(file_path) as f:
+                lines = [f.readline() for _ in range(10)]
+            lines = [l for l in lines if l.strip()]
+            if not lines:
+                return ','
+            counts = {',': 0, '\t': 0, '|': 0}
+            for line in lines:
+                for delim in counts:
+                    counts[delim] += line.count(delim)
+            best = max(counts, key=counts.get)
+            return best if counts[best] > 0 else ','
+        except Exception:
+            return ','
+
+    def _looks_like_header(self, row):
+        if not row or len(row) < 2:
+            return False
+        combined = ' '.join(str(c) for c in row).lower()
+        markers = ['do not delete', "don't delete", 'character', 'name', 'dialogue', 'text']
+        return any(m in combined for m in markers)
+
+    def _try_parse_rows(self, file_path):
+        """Try to parse a file with auto-detected delimiter. Returns (rows, delimiter, has_header)."""
+        delim = self.detect_delimiter(file_path)
+        with self._read_file(file_path) as f:
+            raw_lines = [line.rstrip('\n\r') for line in f if line.strip()]
+
+        if not raw_lines:
+            return [], ',', False
+
+        # Try csv.reader with detected delimiter
+        with self._read_file(file_path) as f:
+            reader = csv.reader(f, delimiter=delim)
+            rows = [row for row in reader if any(c.strip() for c in row)]
+
+        # If delimiter didn't split well, try whitespace (2+ spaces)
+        if not rows or all(len(r) <= 1 for r in rows):
+            rows = []
+            for line in raw_lines:
+                parts = re.split(r'\s{2,}', line)
+                parts = [p.strip() for p in parts if p.strip()]
+                if len(parts) >= 2:
+                    rows.append(parts)
+            if rows:
+                delim = 'whitespace'
+
+        if not rows:
+            return [], delim, False
+
+        has_header = self._looks_like_header(rows[0])
+        return rows, delim, has_header
+
+    def convert_to_standard(self, input_path, output_path=None):
+        """Convert any supported format to standard ID_00XXX,'Text' CSV.
+
+        Returns (output_path, mapping_path).
+        """
+        if output_path is None:
+            base, _ = os.path.splitext(input_path)
+            output_path = f"{base}_standard.csv"
+
+        rows, delim, has_header = self._try_parse_rows(input_path)
+
+        if not rows:
+            self.log("No parseable rows found in file.", "ERROR")
+            return None, None
+
+        data_rows = rows[1:] if has_header else rows
+        header_row = rows[0] if has_header else None
+
+        mapping = {
+            "delimiter": delim,
+            "has_header": has_header,
+            "header": header_row,
+            "mapping": {},
+        }
+
+        id_width = max(5, len(str(len(data_rows))))
+        with open(output_path, 'w', encoding='utf-8', newline='') as f:
+            writer = csv.writer(f)
+            for i, row in enumerate(data_rows):
+                sid = f"ID_{i + 1:0{id_width}d}"
+                text = row[1] if len(row) >= 2 else (row[0] if row else "")
+                original_col1 = row[0] if row else ""
+                mapping["mapping"][sid] = original_col1
+                writer.writerow([sid, text])
+
+        mapping_path = output_path + ".mapping.json"
+        with open(mapping_path, 'w', encoding='utf-8') as f:
+            json.dump(mapping, f, ensure_ascii=False, indent=2)
+
+        self.log(f"Converted {len(data_rows)} entries -> {output_path}")
+        self.log(f"Mapping saved -> {mapping_path}")
+        return output_path, mapping_path
+
+    def restore_from_standard(self, translated_path, mapping_path, output_path=None):
+        """Convert translated standard CSV back to original format using mapping.
+
+        Returns output_path.
+        """
+        if output_path is None:
+            base, _ = os.path.splitext(translated_path)
+            output_path = f"{base}_restored.csv"
+
+        if not os.path.exists(mapping_path):
+            self.log(f"Mapping file not found: {mapping_path}", "ERROR")
+            return None
+
+        with open(mapping_path, 'r', encoding='utf-8') as f:
+            mapping = json.load(f)
+
+        orig_delim = mapping.get("delimiter", ",")
+        if orig_delim == "whitespace":
+            orig_delim = "    "
+        has_header = mapping.get("has_header", False)
+        header = mapping.get("header", None)
+        id_to_col1 = mapping.get("mapping", {})
+
+        translated = {}
+        try:
+            with open(translated_path, 'r', encoding='utf-8') as f:
+                for row in csv.reader(f):
+                    if len(row) >= 2:
+                        translated[row[0]] = row[1]
+        except Exception as e:
+            self.log(f"Error reading translated file: {e}", "ERROR")
+            return None
+
+        with open(output_path, 'w', encoding='utf-8', newline='') as f:
+            if orig_delim in (',', '\t', '|'):
+                writer = csv.writer(f, delimiter=orig_delim)
+                if has_header and header:
+                    writer.writerow(header)
+                for sid, col1 in id_to_col1.items():
+                    text = translated.get(sid, "")
+                    writer.writerow([col1, text])
+            else:
+                # Whitespace delimiter — write with fixed spacing
+                if has_header and header:
+                    f.write(orig_delim.join(str(c) for c in header) + "\n")
+                for sid, col1 in id_to_col1.items():
+                    text = translated.get(sid, "")
+                    f.write(f"{col1}{orig_delim}{text}\n")
+
+        self.log(f"Restored {len(id_to_col1)} entries -> {output_path}")
+        return output_path
+
+    def analyze_file(self, file_path, delimiter=','):
+        self.log("Analyzing file for auto-learning...")
+        if not os.path.exists(file_path):
+            self.log(f"File not found: {file_path}", "ERROR")
+            return "No rules found (file not found)."
+
+        try:
+            with self._read_file(file_path) as f:
+                reader = csv.reader(f, delimiter=delimiter)
+                all_rows = [row for i, row in enumerate(reader) if i < 500 and len(row) >= 2]
+            if all_rows and self._looks_like_header(all_rows[0]):
+                rows = all_rows[1:]
+            else:
+                rows = all_rows
+        except Exception as e:
+            self.log(f"Error reading file: {e}", "ERROR")
+            return "No rules found (read error)."
+
+        # Scan for patterns
+        found_tags = set()
+        tag_pattern = re.compile(r'(<[^>]+>|\n|\r|%[sdiefg]|\{\d+\}|\[[^\]]+\]|\|[^|]+\|)')
+        for row in rows:
+            text = row[1]
+            tags = tag_pattern.findall(text)
+            for t in tags:
+                if t not in found_tags:
+                    found_tags.add(t)
+
+        if found_tags:
+            self.log(f"Detected tags/variables: {', '.join(found_tags)}")
+            rules = "\n=== 4. AUTO-LEARNED RULES ===\n"
+            rules += "- IMPORTANT: Ensure the following tags/variables remain exactly as they appear in the source text: "
+            rules += ", ".join(found_tags) + "\n"
+            return rules
+        else:
+            self.log("No specific tags or variables detected in the first 500 rows.")
+            return ""
+
+    def mask_tags(self, text):
+        tag_pattern = r'(<[^>]+>|\\n|\\r|\n|\r|%[sdiefg]|\{\d+\}|\[[^\]]+\]|\|[^|]+\|)'
+        tags = re.findall(tag_pattern, text)
+        masked_text = text
+        placeholders = {}
+        for idx, tag in enumerate(tags):
+            placeholder = f"[TAG_{idx}]"
+            if placeholder not in placeholders:
+                placeholders[placeholder] = tag
+            masked_text = masked_text.replace(tag, placeholder, 1)
+        return masked_text, placeholders
+
+    def unmask_tags(self, translated_text, placeholders):
+        unmasked = translated_text
+        for placeholder, original_tag in placeholders.items():
+            unmasked = unmasked.replace(placeholder, original_tag)
+        return unmasked
+
+    def save_checkpoint(self, master_dict, keys_order, filepath, delimiter=','):
+        tmp_file = filepath + ".tmp"
+        try:
+            out_dir = os.path.dirname(filepath)
+            if out_dir:
+                os.makedirs(out_dir, exist_ok=True)
+            with open(tmp_file, 'w', encoding='utf-8', newline='') as f:
+                writer = csv.writer(f, delimiter=delimiter)
+                for k in keys_order:
+                    writer.writerow([k, master_dict.get(k, "")])
+        except Exception as e:
+            self.log(f"Save .tmp failed: {e}", "ERROR")
+            return
+
+        try:
+            os.replace(tmp_file, filepath)
+        except Exception as e:
+            self.log(f"Replace original file failed: {e}", "ERROR")
+            if os.path.exists(tmp_file):
+                try:
+                    os.remove(tmp_file)
+                except Exception:
+                    pass
+
+    def run_translation(self, config):
+        with self._lock:
+            if self._worker_thread and self._worker_thread.is_alive():
+                self.log("Translation already in progress. Stop it first before starting a new one.", "WARN")
+                return
+            self.is_running = True
+            self._worker_thread = threading.Thread(target=self._process_translation, args=(config,), daemon=True)
+            self._worker_thread.start()
+
+    def stop_translation(self):
+        if self.is_running:
+            self.is_running = False
+            self.log("Stopping translation process... (Will stop after current batch)")
+
+    def _process_translation(self, config):
+        api_key = config.get("api_key", "")
+        model = config.get("model", "deepseek-chat")
+        input_csv = config.get("input_csv", "")
+        output_csv = config.get("output_csv", "")
+        base_prompt = config.get("system_prompt", "")
+        canary_words = [w.strip() for w in config.get("canary_words", "").split(",") if w.strip()]
+        glossary = config.get("glossary", "")
+
+        batch_target_chars = 3000
+        max_retries = 5
+
+        if not api_key and model != "custom-local-llm":
+            env_prefix_map = {
+                "gemini": "GEMINI_API_KEY",
+                "claude": "ANTHROPIC_API_KEY",
+                "deepseek": "DEEPSEEK_API_KEY",
+                "gpt-": "OPENAI_API_KEY",
+                "o1-": "OPENAI_API_KEY",
+                "o3-": "OPENAI_API_KEY",
+            }
+            for prefix, env_var in env_prefix_map.items():
+                if model.startswith(prefix):
+                    api_key = os.environ.get(env_var, "")
+                    break
+            if not api_key:
+                api_key = os.environ.get("OPENAI_API_KEY", "")
+
+        if not api_key and model != "custom-local-llm":
+            self.log("API Key is missing!", "ERROR")
+            self.is_running = False
+            return
+
+        # Auto-Learn
+        delimiter = self.detect_delimiter(input_csv)
+        if delimiter != ',':
+            self.log(f"Detected delimiter: {repr(delimiter)}")
+        learned_rules = self.analyze_file(input_csv, delimiter)
+        final_system_prompt = base_prompt + "\n\n=== 3. OFFICIAL GLOSSARY ===\n" + glossary + "\n" + learned_rules
+        self.log("System prompt compiled successfully.")
+
+        master_dict = {}
+        if os.path.exists(output_csv):
+            try:
+                with self._read_file(output_csv) as f:
+                    for row in csv.reader(f, delimiter=delimiter):
+                        if len(row) >= 2:
+                            master_dict[row[0]] = row[1]
+                self.log(f"Loaded existing translation: {len(master_dict)} items.")
+            except Exception as e:
+                self.log(f"Error reading output CSV: {e}", "ERROR")
+
+        if not os.path.exists(input_csv):
+            self.log(f"Input file not found: {input_csv}", "ERROR")
+            self.is_running = False
+            return
+
+        keys_order = []
+        try:
+            with self._read_file(input_csv) as f:
+                reader = csv.reader(f, delimiter=delimiter)
+                all_rows = list(reader)
+            data_rows = all_rows
+            if all_rows and self._looks_like_header(all_rows[0]):
+                self.log("Header row detected, skipping first row.")
+                data_rows = all_rows[1:]
+            for row in data_rows:
+                if len(row) >= 2:
+                    k, v = row[0], row[1]
+                    keys_order.append(k)
+                    if k not in master_dict:
+                        master_dict[k] = v
+        except Exception as e:
+            self.log(f"Error reading input CSV: {e}", "ERROR")
+            self.is_running = False
+            return
+
+        self.log(f"Total entries to process: {len(keys_order)}")
+
+        pending_tasks = []
+        for string_id in keys_order:
+            text = master_dict[string_id]
+            if not text.strip() or bool(re.search(r'[\u0E00-\u0E7F]', text)) or re.match(r'^\{\d+\}$', text.strip()):
+                continue
+            
+            masked_text, placeholders = self.mask_tags(text)
+            if not re.sub(r'\[TAG_\d+\]', '', masked_text).strip():
+                continue
+
+            pending_tasks.append({
+                "id": string_id,
+                "masked_text": masked_text,
+                "placeholders": placeholders,
+                "raw_key": string_id
+            })
+
+        self.log(f"Entries waiting for translation: {len(pending_tasks)}")
+        
+        if not pending_tasks:
+            self.log("Everything is already translated!")
+            if self.progress_callback:
+                self.progress_callback(1.0)
+            self.is_running = False
+            return
+
+        batches = []
+        current_batch = []
+        current_chars = 0
+        for task in pending_tasks:
+            current_batch.append(task)
+            current_chars += len(task["masked_text"])
+            if current_chars >= batch_target_chars:
+                batches.append(current_batch)
+                current_batch = []
+                current_chars = 0
+        if current_batch:
+            batches.append(current_batch)
+
+        self.log(f"Divided into {len(batches)} batches.")
+
+        translated_count = 0
+        failed_count = 0
+        total_batches = len(batches)
+
+        for idx, batch in enumerate(batches, 1):
+            if not self.is_running:
+                self.log("Translation stopped by user.")
+                break
+
+            self.log(f"Processing Batch {idx}/{total_batches}...")
+            
+            lines = [f'"{t["id"]}"\t"{t["masked_text"]}"' for t in batch]
+            user_prompt = f"Translate these {len(batch)} entries:\n" + "\n".join(lines)
+            
+            success = False
+            for attempt in range(1, max_retries + 1):
+                if not self.is_running:
+                    break
+                try:
+                    reply = ""
+                    # --- NATIVE API ROUTING ---
+                    if model.startswith("gemini"):
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+                        payload = {
+                            "systemInstruction": {"parts": [{"text": final_system_prompt}]},
+                            "contents": [{"parts": [{"text": user_prompt}]}],
+                            "generationConfig": {"temperature": 0.3}
+                        }
+                        res = requests.post(url, json=payload, timeout=120)
+                        if res.status_code == 429:
+                            self.log(f"[429] Rate Limit. Waiting... (Attempt {attempt}/{max_retries})", "WARN")
+                            time.sleep(5)
+                            continue
+                        if res.status_code != 200:
+                            self.log(f"Gemini API Error {res.status_code}: {res.text[:100]}", "ERROR")
+                            time.sleep(5)
+                            continue
+                        reply = res.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+                    elif model.startswith("claude"):
+                        url = "https://api.anthropic.com/v1/messages"
+                        headers = {
+                            "x-api-key": api_key,
+                            "anthropic-version": "2023-06-01",
+                            "content-type": "application/json"
+                        }
+                        payload = {
+                            "model": model,
+                            "max_tokens": 8192,
+                            "temperature": 0.3,
+                            "system": final_system_prompt,
+                            "messages": [{"role": "user", "content": user_prompt}]
+                        }
+                        res = requests.post(url, json=payload, headers=headers, timeout=120)
+                        if res.status_code == 429:
+                            self.log(f"[429] Rate Limit. Waiting... (Attempt {attempt}/{max_retries})", "WARN")
+                            time.sleep(5)
+                            continue
+                        if res.status_code != 200:
+                            self.log(f"Claude API Error {res.status_code}: {res.text[:100]}", "ERROR")
+                            time.sleep(5)
+                            continue
+                        reply = res.json()["content"][0]["text"].strip()
+
+                    else:
+                        # OpenAI / DeepSeek / Local LLM format
+                        url = "https://api.openai.com/v1/chat/completions"
+                        actual_model = model
+                        
+                        if model.startswith("deepseek"):
+                            url = "https://api.deepseek.com/chat/completions"
+                        elif model == "custom-local-llm":
+                            url = config.get("base_url", "http://localhost:1234/v1/chat/completions")
+                            actual_model = config.get("custom_model", "llama-3-8b")
+                            
+                        headers = {
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json"
+                        }
+                        # Local LLMs might not need Authorization, but passing it usually doesn't hurt.
+                        if not api_key and model == "custom-local-llm":
+                            headers["Authorization"] = "Bearer dummy_key"
+                            
+                        payload = {
+                            "model": actual_model,
+                            "messages": [
+                                {"role": "system", "content": final_system_prompt},
+                                {"role": "user", "content": user_prompt}
+                            ],
+                            "temperature": 0.3,
+                        }
+                        if model.startswith("gpt-4") or model.startswith("deepseek") or model == "custom-local-llm":
+                            payload["max_tokens"] = 8192
+                            
+                        res = requests.post(url, json=payload, headers=headers, timeout=120)
+                        if res.status_code == 429:
+                            self.log(f"[429] Rate Limit. Waiting... (Attempt {attempt}/{max_retries})", "WARN")
+                            time.sleep(5)
+                            continue
+                        if res.status_code == 401:
+                            self.log("Unauthorized (401). Invalid API Key.", "ERROR")
+                            self.is_running = False
+                            break
+                        if res.status_code != 200:
+                            self.log(f"API Error {res.status_code}: {res.text[:100]}", "ERROR")
+                            time.sleep(5)
+                            continue
+                        reply = res.json()['choices'][0]['message']['content'].strip()
+                    # --- END ROUTING ---
+                    
+                    # Canary check
+                    canary_hit = False
+                    for cw in canary_words:
+                        if cw.lower() in reply.lower():
+                            self.log(f"Detected hallucinated word: {cw}. Rejecting batch.", "WARN")
+                            canary_hit = True
+                            break
+                    if canary_hit:
+                        time.sleep(2)
+                        continue
+
+                    reply = re.sub(r'^```[^\n]*\n?', '', reply, flags=re.MULTILINE)
+                    reply = re.sub(r'\n?```$', '', reply, flags=re.MULTILINE)
+
+                    results = {}
+                    for line in reply.split('\n'):
+                        line = line.strip()
+                        if '\t' in line:
+                            parts = line.split('\t', 1)
+                            if len(parts) >= 2:
+                                results[parts[0].strip().strip('"')] = parts[1].strip().strip('"')
+
+                    for task in batch:
+                        tid = task["id"]
+                        if tid in results:
+                            final_thai = self.unmask_tags(results[tid], task["placeholders"])
+                            master_dict[task["raw_key"]] = final_thai
+                            translated_count += 1
+                        else:
+                            failed_count += 1
+
+                    success = True
+                    break
+
+                except Exception as e:
+                    self.log(f"Request Error: {e}", "ERROR")
+                    time.sleep(5)
+
+            if not success and self.is_running:
+                self.log(f"Batch {idx} failed after {max_retries} attempts.", "ERROR")
+                failed_count += len(batch)
+
+            self.save_checkpoint(master_dict, keys_order, output_csv, delimiter)
+            if self.progress_callback:
+                self.progress_callback(idx / total_batches)
+            
+            if self.is_running and idx < total_batches:
+                time.sleep(1)
+
+        self.log(f"Operation Finished! Translated: {translated_count}, Failed: {failed_count}")
+        if self.progress_callback:
+            self.progress_callback(1.0)
+        self.is_running = False
