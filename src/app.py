@@ -41,6 +41,7 @@ class TranslatorApp(ctk.CTk):
 
         self.output_file_var = tk.StringVar(value="output_translated.csv")
         ctk.CTkEntry(file_frame, textvariable=self.output_file_var, width=380, placeholder_text="Output CSV Path").grid(row=2, column=0, padx=10, pady=(0, 10), columnspan=2, sticky="w")
+        ctk.CTkButton(file_frame, text="Clear", width=60, fg_color="#37474F", hover_color="#455A64", command=self.clear_files).grid(row=2, column=3, padx=5, pady=(0, 10))
 
         # 2. Settings Frame
         settings_frame = ctk.CTkFrame(self)
@@ -123,6 +124,11 @@ class TranslatorApp(ctk.CTk):
         self.progress_bar.set(val)
         if val >= 1.0:
             self.start_btn.configure(state="normal")
+
+    def clear_files(self):
+        self.input_file_var.set("")
+        self.output_file_var.set("output_translated.csv")
+        self.update_log("Input/output fields cleared.")
 
     def browse_input(self):
         filename = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
