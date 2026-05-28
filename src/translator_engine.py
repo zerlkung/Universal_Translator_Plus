@@ -64,9 +64,18 @@ class TranslatorEngine:
         markers = ['do not delete', "don't delete", 'character', 'name', 'dialogue', 'text']
         return any(m in combined for m in markers)
 
-    def _try_parse_rows(self, file_path):
-        """Try to parse a file with auto-detected delimiter. Returns (rows, delimiter, has_header)."""
-        delim = self.detect_delimiter(file_path)
+    def _try_parse_rows(self, file_path, force_delim=None):
+        """Try to parse a file with auto-detected delimiter. Returns (rows, delimiter, has_header).
+
+        If force_delim is set, skips auto-detection and uses the given delimiter.
+        Valid values: None (auto), ',', '\t', '|', 'whitespace', 'newline'.
+        """
+        if force_delim == 'newline':
+            with self._read_file(file_path) as f:
+                raw_lines = [line.rstrip('\n\r') for line in f if line.strip()]
+            return [[line] for line in raw_lines], 'newline', False
+
+        delim = force_delim if force_delim else self.detect_delimiter(file_path)
         with self._read_file(file_path) as f:
             raw_lines = [line.rstrip('\n\r') for line in f if line.strip()]
 
@@ -78,8 +87,21 @@ class TranslatorEngine:
             reader = csv.reader(f, delimiter=delim)
             rows = [row for row in reader if any(c.strip() for c in row)]
 
+        # Reject false delimiter detection (e.g. | in game tags)
+        col_counts = [len(r) for r in rows]
+        delim_rejected = False
+        if col_counts:
+            most_common = max(set(col_counts), key=col_counts.count)
+            if most_common <= 1:
+                rows = []
+                delim_rejected = True
+            elif delim == '|' and len(set(col_counts)) > 2:
+                rows = []
+                delim_rejected = True
+
         # If delimiter didn't split well, try whitespace (2+ spaces)
-        if not rows or all(len(r) <= 1 for r in rows):
+        # Skip whitespace if | was rejected — likely game tags, not whitespace-delimited
+        if not (delim_rejected and delim == '|') and (not rows or all(len(r) <= 1 for r in rows)):
             rows = []
             for line in raw_lines:
                 parts = re.split(r'\s{2,}', line)
@@ -89,22 +111,28 @@ class TranslatorEngine:
             if rows:
                 delim = 'whitespace'
 
+        # Last resort: newline-delimited (one text per line)
+        if not rows:
+            rows = [[line] for line in raw_lines]
+            delim = 'newline'
+
         if not rows:
             return [], delim, False
 
         has_header = self._looks_like_header(rows[0])
         return rows, delim, has_header
 
-    def convert_to_standard(self, input_path, output_path=None):
+    def convert_to_standard(self, input_path, output_path=None, force_delim=None):
         """Convert any supported format to standard ID_00XXX,'Text' CSV.
 
         Returns (output_path, mapping_path).
+        If force_delim is set, skips auto-detection. Use 'newline' for one-text-per-line .txt files.
         """
         if output_path is None:
             base, _ = os.path.splitext(input_path)
             output_path = f"{base}_standard.csv"
 
-        rows, delim, has_header = self._try_parse_rows(input_path)
+        rows, delim, has_header = self._try_parse_rows(input_path, force_delim=force_delim)
 
         if not rows:
             self.log("No parseable rows found in file.", "ERROR")
@@ -125,9 +153,13 @@ class TranslatorEngine:
             writer = csv.writer(f)
             for i, row in enumerate(data_rows):
                 sid = f"ID_{i + 1:0{id_width}d}"
-                text = row[1] if len(row) >= 2 else (row[0] if row else "")
-                original_col1 = row[0] if row else ""
-                mapping["mapping"][sid] = original_col1
+                if delim == 'newline':
+                    text = row[0] if row else ""
+                    mapping["mapping"][sid] = str(i)
+                else:
+                    text = row[1] if len(row) >= 2 else (row[0] if row else "")
+                    original_col1 = row[0] if row else ""
+                    mapping["mapping"][sid] = original_col1
                 writer.writerow([sid, text])
 
         mapping_path = output_path + ".mapping.json"
@@ -155,8 +187,6 @@ class TranslatorEngine:
             mapping = json.load(f)
 
         orig_delim = mapping.get("delimiter", ",")
-        if orig_delim == "whitespace":
-            orig_delim = "    "
         has_header = mapping.get("has_header", False)
         header = mapping.get("header", None)
         id_to_col1 = mapping.get("mapping", {})
@@ -171,21 +201,35 @@ class TranslatorEngine:
             self.log(f"Error reading translated file: {e}", "ERROR")
             return None
 
-        with open(output_path, 'w', encoding='utf-8', newline='') as f:
-            if orig_delim in (',', '\t', '|'):
+        # Newline format: write one text per line, ordered by original line index
+        if orig_delim == 'newline':
+            base, ext = os.path.splitext(output_path)
+            if ext.lower() == '.csv':
+                output_path = base + '.txt'
+            lines = []
+            for sid, line_idx in id_to_col1.items():
+                text = translated.get(sid, "")
+                lines.append((int(line_idx), text))
+            lines.sort(key=lambda x: x[0])
+            with open(output_path, 'w', encoding='utf-8') as f:
+                for _, text in lines:
+                    f.write(text + '\n')
+        elif orig_delim == "whitespace":
+            orig_delim = "    "
+            with open(output_path, 'w', encoding='utf-8', newline='') as f:
+                if has_header and header:
+                    f.write(orig_delim.join(str(c) for c in header) + "\n")
+                for sid, col1 in id_to_col1.items():
+                    text = translated.get(sid, "")
+                    f.write(f"{col1}{orig_delim}{text}\n")
+        else:
+            with open(output_path, 'w', encoding='utf-8', newline='') as f:
                 writer = csv.writer(f, delimiter=orig_delim)
                 if has_header and header:
                     writer.writerow(header)
                 for sid, col1 in id_to_col1.items():
                     text = translated.get(sid, "")
                     writer.writerow([col1, text])
-            else:
-                # Whitespace delimiter — write with fixed spacing
-                if has_header and header:
-                    f.write(orig_delim.join(str(c) for c in header) + "\n")
-                for sid, col1 in id_to_col1.items():
-                    text = translated.get(sid, "")
-                    f.write(f"{col1}{orig_delim}{text}\n")
 
         self.log(f"Restored {len(id_to_col1)} entries -> {output_path}")
         return output_path

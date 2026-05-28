@@ -83,6 +83,10 @@ build.bat
 | 2026-05-26 | **Convert/Restore:** แปลงไฟล์ format ไหนก็ได้ → standard → แปลงกลับ |
 | 2026-05-26 | **Encoding detection:** รองรับ UTF-8, UTF-16 LE/BE, UTF-8 BOM, Latin-1 |
 | 2026-05-26 | **Dead code:** ลบ `translator.py` (ซ้ำกับ engine, ใช้ config format เก่า) |
+| 2026-05-28 | **TXT (one per line):** Convert/Restore รองรับไฟล์ `.txt` แบบหนึ่งบรรทัดหนึ่งข้อความ (Uncharted 4) |
+| 2026-05-28 | **Format selector:** Dropdown เลือก format ก่อน Convert (Auto / CSV-TSV / TXT) |
+| 2026-05-28 | **Pipe tag auto-detect fix:** `\|L3\|` ใน `.txt` ไม่ถูกเข้าใจผิดเป็น column delimiter |
+| 2026-05-28 | **Unit tests:** เพิ่มอีก 3 tests รวมเป็น 33 tests |
 
 ### รูปแบบไฟล์ที่รองรับ
 
@@ -169,5 +173,7 @@ Forked and enhanced from **[memolyviza2012-max/Universal_Translator](https://git
 - Glossary persistence across sessions
 - `.tmp` file cleanup
 - Dead code removal (`translator.py`)
-- 30 unit tests (pytest)
+- TXT one-per-line support (Uncharted 4 format)
+- Convert format selector dropdown (Auto / CSV-TSV / TXT)
+- 33 unit tests (pytest)
 - Dependency version pinning

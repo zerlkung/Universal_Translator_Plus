@@ -391,6 +391,91 @@ class TestConvertRestore:
         finally:
             os.unlink(tmp_path)
 
+    def test_convert_newline_txt(self):
+        engine = make_engine()
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8", newline="") as f:
+            f.write("Slow Motion\n")
+            f.write("Press |L3| to mark enemies\n")
+            f.write("Get to the Car\n")
+            tmp_path = f.name
+        try:
+            std_path, mapping_path = engine.convert_to_standard(tmp_path, force_delim='newline')
+            assert std_path is not None
+            assert os.path.exists(std_path)
+
+            with open(std_path, "r", encoding="utf-8", newline="") as f:
+                rows = list(csv.reader(f))
+            assert len(rows) == 3
+            assert rows[0] == ["ID_00001", "Slow Motion"]
+            assert rows[1] == ["ID_00002", "Press |L3| to mark enemies"]
+            assert rows[2] == ["ID_00003", "Get to the Car"]
+
+            with open(mapping_path, "r", encoding="utf-8") as f:
+                mapping = json.load(f)
+            assert mapping["delimiter"] == "newline"
+            assert mapping["has_header"] is False
+            assert mapping["mapping"]["ID_00001"] == "0"
+            assert mapping["mapping"]["ID_00002"] == "1"
+            assert mapping["mapping"]["ID_00003"] == "2"
+        finally:
+            for p in [tmp_path, std_path, mapping_path]:
+                try:
+                    os.unlink(p)
+                except Exception:
+                    pass
+
+    def test_round_trip_newline(self):
+        engine = make_engine()
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8", newline="") as f:
+            f.write("Line one\n")
+            f.write("Line two |X| tag\n")
+            f.write("Line three\n")
+            orig = f.name
+        try:
+            std_path, mapping_path = engine.convert_to_standard(orig, force_delim='newline')
+
+            # Simulate translation
+            with open(std_path, "r", encoding="utf-8", newline="") as f:
+                rows = list(csv.reader(f))
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, encoding="utf-8", newline="") as f:
+                w = csv.writer(f)
+                for r in rows:
+                    w.writerow([r[0], f"[TH] {r[1]}"])
+                translated_path = f.name
+
+            restored = engine.restore_from_standard(translated_path, mapping_path)
+            assert restored is not None
+            assert restored.endswith('.txt')
+
+            with open(restored, "r", encoding="utf-8") as f:
+                restored_lines = [l.rstrip('\n\r') for l in f.readlines()]
+            assert restored_lines == ["[TH] Line one", "[TH] Line two |X| tag", "[TH] Line three"]
+        finally:
+            for p in [orig, std_path, mapping_path, translated_path, restored]:
+                try:
+                    os.unlink(p)
+                except Exception:
+                    pass
+
+    def test_auto_detect_newline_with_pipe_tags(self):
+        engine = make_engine()
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8", newline="") as f:
+            f.write("Plain text line\n")
+            f.write("Press |L3| to mark\n")
+            f.write("|R| Rotate\\|L| Navigate\n")
+            f.write("Another plain line\n")
+            tmp_path = f.name
+        try:
+            rows, delim, has_header = engine._try_parse_rows(tmp_path)
+            assert delim == 'newline'
+            assert len(rows) == 4
+            assert rows[0] == ["Plain text line"]
+            assert rows[1] == ["Press |L3| to mark"]
+            assert rows[2] == ["|R| Rotate\\|L| Navigate"]
+            assert not has_header
+        finally:
+            os.unlink(tmp_path)
+
 
 if __name__ == "__main__":
     import pytest

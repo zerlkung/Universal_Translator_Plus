@@ -32,6 +32,11 @@ class TranslatorApp(ctk.CTk):
         file_frame.grid(row=0, column=0, columnspan=2, padx=20, pady=10, sticky="ew")
         
         ctk.CTkLabel(file_frame, text="1. Select Files", font=ctk.CTkFont(size=16, weight="bold")).grid(row=0, column=0, padx=10, pady=10, sticky="w")
+
+        ctk.CTkLabel(file_frame, text="Format:").grid(row=0, column=1, padx=(30, 5), pady=10, sticky="e")
+        self.convert_format_var = ctk.StringVar(value="Auto-detect")
+        ctk.CTkOptionMenu(file_frame, variable=self.convert_format_var, width=160,
+                          values=["Auto-detect", "CSV/TSV (delimited)", "TXT (one per line)"]).grid(row=0, column=2, padx=5, pady=10, sticky="w", columnspan=2)
         
         self.input_file_var = tk.StringVar()
         ctk.CTkEntry(file_frame, textvariable=self.input_file_var, width=380, placeholder_text="Input CSV Path").grid(row=1, column=0, padx=10, pady=(0, 5))
@@ -219,8 +224,13 @@ class TranslatorApp(ctk.CTk):
         base, _ = os.path.splitext(input_path)
         output_path = f"{base}_standard.csv"
 
-        self.update_log("Converting file to standard format...")
-        result_path, mapping_path = self.engine.convert_to_standard(input_path, output_path)
+        fmt = self.convert_format_var.get()
+        force_delim = None
+        if fmt == "TXT (one per line)":
+            force_delim = "newline"
+
+        self.update_log(f"Converting file to standard format (mode: {fmt})...")
+        result_path, mapping_path = self.engine.convert_to_standard(input_path, output_path, force_delim=force_delim)
 
         if result_path:
             self.input_file_var.set(result_path)
