@@ -87,6 +87,7 @@ build.bat
 | 2026-05-28 | **Format selector:** Dropdown เลือก format ก่อน Convert (Auto / CSV-TSV / TXT) |
 | 2026-05-28 | **Pipe tag auto-detect fix:** `\|L3\|` ใน `.txt` ไม่ถูกเข้าใจผิดเป็น column delimiter |
 | 2026-05-28 | **Unit tests:** เพิ่มอีก 3 tests รวมเป็น 33 tests |
+| 2026-05-28 | **UX/UI:** แสดง % ความคืบหน้า, ป้ายสถานะสี (Ready/Translating/Complete), ปุ่ม Stop ปิดตอน idle |
 
 ### รูปแบบไฟล์ที่รองรับ
 
@@ -175,5 +176,6 @@ Forked and enhanced from **[memolyviza2012-max/Universal_Translator](https://git
 - Dead code removal (`translator.py`)
 - TXT one-per-line support (Uncharted 4 format)
 - Convert format selector dropdown (Auto / CSV-TSV / TXT)
+- UX/UI: progress %, status indicator (Ready/Translating/Complete), Stop button disabled when idle
 - 33 unit tests (pytest)
 - Dependency version pinning

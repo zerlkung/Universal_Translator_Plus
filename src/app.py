@@ -108,16 +108,22 @@ class TranslatorApp(ctk.CTk):
         # 5. Action Buttons
         action_frame = ctk.CTkFrame(self, fg_color="transparent")
         action_frame.grid(row=3, column=0, columnspan=2, padx=20, pady=10, sticky="ew")
-        
+
+        self.status_label = ctk.CTkLabel(action_frame, text="● Ready", text_color="#6B7280", font=ctk.CTkFont(size=13))
+        self.status_label.pack(side="left", padx=(0, 10))
+
         self.start_btn = ctk.CTkButton(action_frame, text="Analyze & Translate", command=self.start_translation, width=200, height=40, font=ctk.CTkFont(size=14, weight="bold"))
-        self.start_btn.pack(side="left", padx=10)
-        
-        self.stop_btn = ctk.CTkButton(action_frame, text="Stop", command=self.stop_translation, fg_color="red", hover_color="darkred", width=100, height=40)
-        self.stop_btn.pack(side="left", padx=10)
+        self.start_btn.pack(side="left", padx=5)
+
+        self.stop_btn = ctk.CTkButton(action_frame, text="Stop", command=self.stop_translation, fg_color="#DC2626", hover_color="#991B1B", width=100, height=40, state="disabled")
+        self.stop_btn.pack(side="left", padx=5)
 
         self.progress_bar = ctk.CTkProgressBar(action_frame)
-        self.progress_bar.pack(side="left", fill="x", expand=True, padx=20)
+        self.progress_bar.pack(side="left", fill="x", expand=True, padx=(20, 5))
         self.progress_bar.set(0)
+
+        self.progress_label = ctk.CTkLabel(action_frame, text="0%", width=45, font=ctk.CTkFont(size=13))
+        self.progress_label.pack(side="left", padx=(0, 5))
 
     def update_log(self, msg):
         self.log_box.configure(state="normal")
@@ -127,8 +133,12 @@ class TranslatorApp(ctk.CTk):
 
     def update_progress(self, val):
         self.progress_bar.set(val)
+        pct = int(val * 100)
+        self.progress_label.configure(text=f"{pct}%")
         if val >= 1.0:
             self.start_btn.configure(state="normal")
+            self.stop_btn.configure(state="disabled")
+            self.status_label.configure(text="● Complete", text_color="#10B981")
 
     def clear_files(self):
         self.input_file_var.set("")
@@ -268,7 +278,10 @@ class TranslatorApp(ctk.CTk):
     def start_translation(self):
         self.save_config()
         self.start_btn.configure(state="disabled")
+        self.stop_btn.configure(state="normal")
         self.progress_bar.set(0)
+        self.progress_label.configure(text="0%")
+        self.status_label.configure(text="● Translating…", text_color="#F59E0B")
         self.log_box.configure(state="normal")
         self.log_box.delete("1.0", "end")
         self.log_box.configure(state="disabled")
@@ -289,6 +302,8 @@ class TranslatorApp(ctk.CTk):
         self.engine.run_translation(config)
 
     def stop_translation(self):
+        self.stop_btn.configure(state="disabled")
+        self.status_label.configure(text="● Stopping…", text_color="#EF4444")
         self.engine.stop_translation()
 
 if __name__ == "__main__":
