@@ -280,11 +280,22 @@ class TranslatorEngine:
                 return None
             with self._read_file(orig_file) as f:
                 all_lines = [line.rstrip('\n\r') for line in f]
+            # Splice in translations
             for sid, line_idx_str in id_to_col1.items():
                 if sid in translated:
                     idx = int(line_idx_str)
                     if idx < len(all_lines):
                         all_lines[idx] = translated[sid]
+            # Clean up " -> " lines: keep only Thai part, discard source language
+            cleaned = 0
+            for i, line in enumerate(all_lines):
+                if ' -> ' in line:
+                    parts = line.split(' -> ', 1)
+                    if len(parts) == 2 and re.search(r'[฀-๿]', parts[1]):
+                        all_lines[i] = parts[1]
+                        cleaned += 1
+            if cleaned:
+                self.log(f"Cleaned {cleaned} arrow-separator lines (kept Thai only).")
             with open(output_path, 'w', encoding='utf-8') as f:
                 for line in all_lines:
                     f.write(line + '\n')
