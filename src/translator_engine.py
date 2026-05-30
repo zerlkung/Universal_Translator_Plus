@@ -76,9 +76,10 @@ class TranslatorEngine:
         # Already has Thai characters → already translated
         if re.search(r'[฀-๿]', stripped):
             return False
-        # Has " -> " separator with Thai on the right → already translated
-        if ' -> ' in stripped:
-            parts = stripped.split(' -> ', 1)
+        # Has arrow separator with Thai on the right → already translated
+        arrow_match = re.search(r'\s+(?:->|→)\s+', stripped)
+        if arrow_match:
+            parts = stripped.split(arrow_match.group(), 1)
             if len(parts) == 2 and re.search(r'[฀-๿]', parts[1]):
                 return False
         return True
@@ -286,11 +287,14 @@ class TranslatorEngine:
                     idx = int(line_idx_str)
                     if idx < len(all_lines):
                         all_lines[idx] = translated[sid]
-            # Clean up " -> " lines: keep only Thai part, discard source language
+            # Clean up arrow-separator lines: keep only Thai part, discard source language
+            # Handles both ASCII " -> " and Unicode " → " (AI output often uses Unicode arrow)
+            arrow_pattern = re.compile(r'\s+(?:->|→)\s+')
             cleaned = 0
             for i, line in enumerate(all_lines):
-                if ' -> ' in line:
-                    parts = line.split(' -> ', 1)
+                m = arrow_pattern.search(line)
+                if m:
+                    parts = line.split(m.group(), 1)
                     if len(parts) == 2 and re.search(r'[฀-๿]', parts[1]):
                         all_lines[i] = parts[1]
                         cleaned += 1
