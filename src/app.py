@@ -267,8 +267,15 @@ class TranslatorApp(ctk.CTk):
             messagebox.showerror("Error", f"Mapping file not found:\n{mapping_path}\n\nMake sure you converted the original file first.")
             return
 
-        base, _ = os.path.splitext(translated_path)
-        out = f"{base}_restored.csv"
+        # Derive restored filename from original file, not from translated chain
+        try:
+            with open(mapping_path, 'r', encoding='utf-8') as f:
+                mapping_meta = json.load(f)
+            orig_file = mapping_meta.get("original_file", translated_path)
+        except Exception:
+            orig_file = translated_path
+        orig_base, orig_ext = os.path.splitext(orig_file)
+        out = f"{orig_base}_restored{orig_ext}"
 
         self.update_log("Restoring to original format...")
         result = self.engine.restore_from_standard(translated_path, mapping_path, out)

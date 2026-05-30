@@ -198,8 +198,7 @@ class TranslatorEngine:
             "header": header_row,
             "mapping": {},
         }
-        if delim == 'subtitles':
-            mapping["original_file"] = os.path.abspath(input_path)
+        mapping["original_file"] = os.path.abspath(input_path)
 
         id_width = max(5, len(str(len(data_rows))))
         with open(output_path, 'w', encoding='utf-8', newline='') as f:
