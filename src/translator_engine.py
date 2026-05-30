@@ -64,16 +64,61 @@ class TranslatorEngine:
         markers = ['do not delete', "don't delete", 'character', 'name', 'dialogue', 'text']
         return any(m in combined for m in markers)
 
+    def _needs_translation(self, text):
+        """Check if a text line needs translation (not already Thai, not placeholder)."""
+        stripped = text.strip()
+        if not stripped:
+            return False
+        if stripped == '[EmptyString]':
+            return False
+        if stripped.isdigit() or stripped.lstrip('-').isdigit():
+            return False
+        # Already has Thai characters → already translated
+        if re.search(r'[฀-๿]', stripped):
+            return False
+        # Has " -> " separator with Thai on the right → already translated
+        if ' -> ' in stripped:
+            parts = stripped.split(' -> ', 1)
+            if len(parts) == 2 and re.search(r'[฀-๿]', parts[1]):
+                return False
+        return True
+
+    def _filter_untranslated_lines(self, file_path):
+        """Read a subtitles .txt file, return only lines needing translation.
+        Returns (rows, delimiter, has_header) where rows are [[text], ...] and
+        a parallel list of original line indices is stored for mapping.
+        """
+        with self._read_file(file_path) as f:
+            all_lines = [line.rstrip('\n\r') for line in f]
+
+        rows = []
+        line_indices = []
+        for i, line in enumerate(all_lines):
+            if self._needs_translation(line):
+                rows.append([line])
+                line_indices.append(i)
+
+        self.log(f"Subtitles: {len(all_lines)} total, {len(rows)} need translation, "
+                 f"{len(all_lines) - len(rows)} already translated/skipped.")
+        return rows, 'subtitles', False, line_indices
+
     def _try_parse_rows(self, file_path, force_delim=None):
         """Try to parse a file with auto-detected delimiter. Returns (rows, delimiter, has_header).
 
         If force_delim is set, skips auto-detection and uses the given delimiter.
-        Valid values: None (auto), ',', '\t', '|', 'whitespace', 'newline'.
+        Valid values: None (auto), ',', '\t', '|', 'whitespace', 'newline', 'subtitles'.
+        Note: 'subtitles' returns 4-tuple (rows, delim, has_header, line_indices).
         """
+        if force_delim == 'subtitles':
+            return self._filter_untranslated_lines(file_path)
+
         if force_delim == 'newline':
             with self._read_file(file_path) as f:
                 raw_lines = [line.rstrip('\n\r') for line in f if line.strip()]
             return [[line] for line in raw_lines], 'newline', False
+
+        if force_delim == 'subtitles':
+            return self._filter_untranslated_lines(file_path)
 
         delim = force_delim if force_delim else self.detect_delimiter(file_path)
         with self._read_file(file_path) as f:
@@ -132,7 +177,12 @@ class TranslatorEngine:
             base, _ = os.path.splitext(input_path)
             output_path = f"{base}_standard.csv"
 
-        rows, delim, has_header = self._try_parse_rows(input_path, force_delim=force_delim)
+        result = self._try_parse_rows(input_path, force_delim=force_delim)
+        if len(result) == 4:
+            rows, delim, has_header, line_indices = result
+        else:
+            rows, delim, has_header = result
+            line_indices = None
 
         if not rows:
             self.log("No parseable rows found in file.", "ERROR")
@@ -147,15 +197,20 @@ class TranslatorEngine:
             "header": header_row,
             "mapping": {},
         }
+        if delim == 'subtitles':
+            mapping["original_file"] = os.path.abspath(input_path)
 
         id_width = max(5, len(str(len(data_rows))))
         with open(output_path, 'w', encoding='utf-8', newline='') as f:
             writer = csv.writer(f)
             for i, row in enumerate(data_rows):
                 sid = f"ID_{i + 1:0{id_width}d}"
-                if delim == 'newline':
+                if delim in ('newline', 'subtitles'):
                     text = row[0] if row else ""
-                    mapping["mapping"][sid] = str(i)
+                    if delim == 'subtitles' and line_indices:
+                        mapping["mapping"][sid] = str(line_indices[i])
+                    else:
+                        mapping["mapping"][sid] = str(i)
                 else:
                     text = row[1] if len(row) >= 2 else (row[0] if row else "")
                     original_col1 = row[0] if row else ""
@@ -214,6 +269,27 @@ class TranslatorEngine:
             with open(output_path, 'w', encoding='utf-8') as f:
                 for _, text in lines:
                     f.write(text + '\n')
+
+        elif orig_delim == 'subtitles':
+            base, ext = os.path.splitext(output_path)
+            if ext.lower() == '.csv':
+                output_path = base + '.txt'
+            orig_file = mapping.get("original_file", "")
+            if not orig_file or not os.path.exists(orig_file):
+                self.log(f"Original subtitles file not found: {orig_file}", "ERROR")
+                return None
+            with self._read_file(orig_file) as f:
+                all_lines = [line.rstrip('\n\r') for line in f]
+            for sid, line_idx_str in id_to_col1.items():
+                if sid in translated:
+                    idx = int(line_idx_str)
+                    if idx < len(all_lines):
+                        all_lines[idx] = translated[sid]
+            with open(output_path, 'w', encoding='utf-8') as f:
+                for line in all_lines:
+                    f.write(line + '\n')
+            self.log(f"Merged {len(translated)} translations into {len(all_lines)} lines.")
+
         elif orig_delim == "whitespace":
             orig_delim = "    "
             with open(output_path, 'w', encoding='utf-8', newline='') as f:
