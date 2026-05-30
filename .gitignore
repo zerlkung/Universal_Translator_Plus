@@ -19,6 +19,7 @@ config.json
 *_standard.csv
 *_translated.csv
 *_restored.csv
+*_restored.txt
 *.mapping.json
 *.tmp
 input.csv
