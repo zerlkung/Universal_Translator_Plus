@@ -30,23 +30,26 @@ class TranslatorApp(ctk.CTk):
         # 1. File Selection Frame
         file_frame = ctk.CTkFrame(self)
         file_frame.grid(row=0, column=0, columnspan=2, padx=20, pady=10, sticky="ew")
-        
-        ctk.CTkLabel(file_frame, text="1. Select Files", font=ctk.CTkFont(size=16, weight="bold")).grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        file_frame.grid_columnconfigure(0, weight=1)  # Input entry expands
 
-        ctk.CTkLabel(file_frame, text="Format:").grid(row=0, column=1, padx=(30, 5), pady=10, sticky="e")
-        self.convert_format_var = ctk.StringVar(value="Auto-detect")
-        ctk.CTkOptionMenu(file_frame, variable=self.convert_format_var, width=160,
-                          values=["Auto-detect", "CSV/TSV (delimited)", "TXT (one per line)", "Subtitles (untranslated only)", "XML (game stringtable)"]).grid(row=0, column=2, padx=5, pady=10, sticky="w", columnspan=2)
-        
+        ctk.CTkLabel(file_frame, text="1. Select Files", font=ctk.CTkFont(size=16, weight="bold")).grid(row=0, column=0, padx=10, pady=(10, 5), sticky="w", columnspan=5)
+
+        # Row 1: Input + Browse (right)
         self.input_file_var = tk.StringVar()
-        ctk.CTkEntry(file_frame, textvariable=self.input_file_var, width=380, placeholder_text="Input CSV Path").grid(row=1, column=0, padx=10, pady=(0, 5))
+        ctk.CTkEntry(file_frame, textvariable=self.input_file_var, placeholder_text="Select input file...").grid(row=1, column=0, padx=(10, 5), pady=(0, 5), sticky="ew")
         ctk.CTkButton(file_frame, text="Browse", width=80, command=self.browse_input).grid(row=1, column=1, padx=5, pady=(0, 5))
-        ctk.CTkButton(file_frame, text="Convert", width=80, fg_color="#1565C0", command=self.convert_file).grid(row=1, column=2, padx=5, pady=(0, 5))
-        ctk.CTkButton(file_frame, text="Restore", width=80, fg_color="#6A1B9A", command=self.restore_file).grid(row=1, column=3, padx=5, pady=(0, 5))
 
+        # Row 2: Output + Format + Convert/Restore/Clear (right)
         self.output_file_var = tk.StringVar(value="output_translated.csv")
-        ctk.CTkEntry(file_frame, textvariable=self.output_file_var, width=380, placeholder_text="Output CSV Path").grid(row=2, column=0, padx=10, pady=(0, 10), columnspan=2, sticky="w")
-        ctk.CTkButton(file_frame, text="Clear", width=60, fg_color="#37474F", hover_color="#455A64", command=self.clear_files).grid(row=2, column=3, padx=5, pady=(0, 10))
+        ctk.CTkEntry(file_frame, textvariable=self.output_file_var, placeholder_text="Output file...").grid(row=2, column=0, padx=(10, 5), pady=(0, 10), sticky="ew")
+
+        self.convert_format_var = ctk.StringVar(value="Auto-detect")
+        ctk.CTkOptionMenu(file_frame, variable=self.convert_format_var, width=170,
+                          values=["Auto-detect", "CSV/TSV (delimited)", "TXT (one per line)", "Subtitles (untranslated only)", "XML (game stringtable)"]).grid(row=2, column=1, padx=5, pady=(0, 10))
+
+        ctk.CTkButton(file_frame, text="Convert", width=75, fg_color="#1565C0", command=self.convert_file).grid(row=2, column=2, padx=(10, 2), pady=(0, 10))
+        ctk.CTkButton(file_frame, text="Restore", width=75, fg_color="#6A1B9A", command=self.restore_file).grid(row=2, column=3, padx=2, pady=(0, 10))
+        ctk.CTkButton(file_frame, text="Clear", width=50, fg_color="#37474F", hover_color="#455A64", command=self.clear_files).grid(row=2, column=4, padx=(2, 10), pady=(0, 10))
 
         # 2. Settings Frame
         settings_frame = ctk.CTkFrame(self)
@@ -146,7 +149,14 @@ class TranslatorApp(ctk.CTk):
         self.update_log("Input/output fields cleared.")
 
     def browse_input(self):
-        filename = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
+        fmt = self.convert_format_var.get()
+        if fmt == "XML (game stringtable)":
+            filetypes = [("XML files", "*.xml"), ("All files", "*.*")]
+        elif fmt in ("TXT (one per line)", "Subtitles (untranslated only)"):
+            filetypes = [("Text files", "*.txt"), ("All files", "*.*")]
+        else:
+            filetypes = [("CSV/TSV files", "*.csv;*.tsv;*.txt"), ("All files", "*.*")]
+        filename = filedialog.askopenfilename(filetypes=filetypes)
         if filename:
             self.input_file_var.set(filename)
             if not self.output_file_var.get() or self.output_file_var.get() == "output_translated.csv":
