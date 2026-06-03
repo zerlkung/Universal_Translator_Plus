@@ -104,8 +104,8 @@ class TranslatorEngine:
                  f"{len(all_lines) - len(rows)} already translated/skipped.")
         return rows, 'subtitles', False, line_indices
 
-    def _parse_xml_untranslated(self, file_path):
-        """Parse a game StringTable XML file, return only entries needing translation.
+    def _parse_xml_all(self, file_path):
+        """Parse a game StringTable XML file, return ALL entries.
         Returns (rows, delimiter, has_header, string_ids).
         """
         tree = ET.parse(file_path)
@@ -114,20 +114,15 @@ class TranslatorEngine:
 
         rows = []
         string_ids = []
-        skipped = 0
         for item in items:
             sid = item.get('StringID', '')
             content = item.find('Content')
             text = content.text if content is not None and content.text else ''
-            if self._needs_translation(text):
+            if text.strip():  # skip truly empty
                 rows.append([text])
                 string_ids.append(sid)
-            else:
-                skipped += 1
 
-        total = len(items)
-        self.log(f"XML: {total} total entries, {len(rows)} need translation, "
-                 f"{skipped} already translated/empty/skipped.")
+        self.log(f"XML: {len(rows)} entries extracted from {len(items)} total.")
         return rows, 'xml', False, string_ids
 
     def _try_parse_rows(self, file_path, force_delim=None):
@@ -141,7 +136,7 @@ class TranslatorEngine:
             return self._filter_untranslated_lines(file_path)
 
         if force_delim == 'xml':
-            return self._parse_xml_untranslated(file_path)
+            return self._parse_xml_all(file_path)
 
         if force_delim == 'newline':
             with self._read_file(file_path) as f:
