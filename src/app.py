@@ -12,7 +12,7 @@ class TranslatorApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("Universal Game Translator - by-NodNuatTranslator v1.0")
+        self.title("Universal Game Translator Plus v2.0 — by NodNuatTranslator")
         self.geometry("900x700")
 
         self.engine = TranslatorEngine(log_callback=self.update_log, progress_callback=self.update_progress)
@@ -46,7 +46,7 @@ class TranslatorApp(ctk.CTk):
 
         self.convert_format_var = ctk.StringVar(value="Auto-detect")
         ctk.CTkOptionMenu(file_frame, variable=self.convert_format_var, width=170,
-                          values=["Auto-detect", "CSV/TSV (delimited)", "TXT (one per line)", "Subtitles (untranslated only)", "XML (game stringtable)"]).grid(row=2, column=1, padx=5, pady=(0, 10))
+                          values=["Auto-detect", "CSV/TSV (delimited)", "TXT (one per line)", "XML (game stringtable)", "Subtitles (untranslated only)"]).grid(row=2, column=1, padx=5, pady=(0, 10))
 
         ctk.CTkButton(file_frame, text="Convert", width=75, fg_color="#1565C0", command=self.convert_file).grid(row=2, column=2, padx=(10, 2), pady=(0, 10))
         ctk.CTkButton(file_frame, text="Restore", width=75, fg_color="#6A1B9A", command=self.restore_file).grid(row=2, column=3, padx=2, pady=(0, 10))

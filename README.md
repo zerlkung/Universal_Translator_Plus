@@ -1,4 +1,4 @@
-# Universal Game Translator Plus
+# Universal Game Translator Plus v2.0
 
 **AI-powered game CSV localization tool** — แปลข้อความเกมจากไฟล์ CSV ด้วย AI หลายเจ้า
 
@@ -96,7 +96,12 @@ build.bat
 | 2026-05-28 | **Pipe tag auto-detect fix:** `\|L3\|` ใน `.txt` ไม่ถูกเข้าใจผิดเป็น column delimiter |
 | 2026-05-28 | **Unit tests:** เพิ่มอีก 3 tests รวมเป็น 33 tests |
 | 2026-05-28 | **UX/UI:** แสดง % ความคืบหน้า, ป้ายสถานะสี (Ready/Translating/Complete), ปุ่ม Stop ปิดตอน idle |
-| 2026-05-28 | **Subtitles mode:** Convert เฉพาะบรรทัดที่ยังไม่แปลไทย, Restore รวมกลับโดยรักษาบรรทัดที่แปลแล้ว |
+| 2026-05-28 | **Subtitles mode:** Convert เฉพาะบรรทัดที่ยังไม่แปลไทย, Restore รวมกลับ + ล้าง `->` / `→` |
+| 2026-05-28 | **Arrow cleanup:** ลบบรรทัด `->` และ `→` ทิ้งส่วนภาษาต้นทาง เหลือแต่ไทย |
+| 2026-05-28 | **Restore naming:** ใช้ชื่อไฟล์ต้นฉบับ + `_restored` แทนการต่อ suffix ยาว |
+| 2026-05-30 | **XML mode:** Convert/Restore ไฟล์ XML game StringTable (27K+ entries) |
+| 2026-05-30 | **UI Layout:** Browse ขวา, Convert/Restore/Clear กลุ่มขวา, ไฟล์กรองตาม format |
+| 2026-05-30 | **Flexible UI:** Glossary/Settings frames ขยายตาม fullscreen |
 
 ### รูปแบบไฟล์ที่รองรับ
 
@@ -191,8 +196,9 @@ Forked and enhanced from **[memolyviza2012-max/Universal_Translator](https://git
 - `.tmp` file cleanup
 - Dead code removal (`translator.py`)
 - TXT one-per-line support (Uncharted 4 format)
-- Subtitles mode: extract untranslated lines only, merge back preserving translated lines
-- Convert format selector dropdown (Auto / CSV-TSV / TXT / Subtitles)
-- UX/UI: progress %, status indicator (Ready/Translating/Complete), Stop button disabled when idle
+- Subtitles mode: extract untranslated lines, merge back preserving translated, clean `->`/`→`
+- XML game StringTable support (27K+ entries)
+- Convert format selector dropdown (Auto / CSV-TSV / TXT / XML / Subtitles)
+- UX/UI: progress %, status indicator, Stop disabled when idle, flexible layout, Browse right
 - 33 unit tests (pytest)
 - Dependency version pinning
