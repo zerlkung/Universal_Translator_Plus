@@ -36,7 +36,7 @@ class TranslatorApp(ctk.CTk):
         ctk.CTkLabel(file_frame, text="Format:").grid(row=0, column=1, padx=(30, 5), pady=10, sticky="e")
         self.convert_format_var = ctk.StringVar(value="Auto-detect")
         ctk.CTkOptionMenu(file_frame, variable=self.convert_format_var, width=160,
-                          values=["Auto-detect", "CSV/TSV (delimited)", "TXT (one per line)", "Subtitles (untranslated only)"]).grid(row=0, column=2, padx=5, pady=10, sticky="w", columnspan=2)
+                          values=["Auto-detect", "CSV/TSV (delimited)", "TXT (one per line)", "Subtitles (untranslated only)", "XML (game stringtable)"]).grid(row=0, column=2, padx=5, pady=10, sticky="w", columnspan=2)
         
         self.input_file_var = tk.StringVar()
         ctk.CTkEntry(file_frame, textvariable=self.input_file_var, width=380, placeholder_text="Input CSV Path").grid(row=1, column=0, padx=10, pady=(0, 5))
@@ -240,6 +240,8 @@ class TranslatorApp(ctk.CTk):
             force_delim = "newline"
         elif fmt == "Subtitles (untranslated only)":
             force_delim = "subtitles"
+        elif fmt == "XML (game stringtable)":
+            force_delim = "xml"
 
         self.update_log(f"Converting file to standard format (mode: {fmt})...")
         result_path, mapping_path = self.engine.convert_to_standard(input_path, output_path, force_delim=force_delim)

@@ -5,6 +5,7 @@ import os
 import re
 import json
 import threading
+import xml.etree.ElementTree as ET
 
 class TranslatorEngine:
     def __init__(self, log_callback=None, progress_callback=None):
@@ -103,15 +104,44 @@ class TranslatorEngine:
                  f"{len(all_lines) - len(rows)} already translated/skipped.")
         return rows, 'subtitles', False, line_indices
 
+    def _parse_xml_untranslated(self, file_path):
+        """Parse a game StringTable XML file, return only entries needing translation.
+        Returns (rows, delimiter, has_header, string_ids).
+        """
+        tree = ET.parse(file_path)
+        root = tree.getroot()
+        items = root.findall('.//LocalisableString')
+
+        rows = []
+        string_ids = []
+        skipped = 0
+        for item in items:
+            sid = item.get('StringID', '')
+            content = item.find('Content')
+            text = content.text if content is not None and content.text else ''
+            if self._needs_translation(text):
+                rows.append([text])
+                string_ids.append(sid)
+            else:
+                skipped += 1
+
+        total = len(items)
+        self.log(f"XML: {total} total entries, {len(rows)} need translation, "
+                 f"{skipped} already translated/empty/skipped.")
+        return rows, 'xml', False, string_ids
+
     def _try_parse_rows(self, file_path, force_delim=None):
         """Try to parse a file with auto-detected delimiter. Returns (rows, delimiter, has_header).
 
         If force_delim is set, skips auto-detection and uses the given delimiter.
-        Valid values: None (auto), ',', '\t', '|', 'whitespace', 'newline', 'subtitles'.
-        Note: 'subtitles' returns 4-tuple (rows, delim, has_header, line_indices).
+        Valid values: None (auto), ',', '\t', '|', 'whitespace', 'newline', 'subtitles', 'xml'.
+        Note: 'subtitles'/'xml' returns 4-tuple (rows, delim, has_header, indices/ids).
         """
         if force_delim == 'subtitles':
             return self._filter_untranslated_lines(file_path)
+
+        if force_delim == 'xml':
+            return self._parse_xml_untranslated(file_path)
 
         if force_delim == 'newline':
             with self._read_file(file_path) as f:
@@ -180,10 +210,10 @@ class TranslatorEngine:
 
         result = self._try_parse_rows(input_path, force_delim=force_delim)
         if len(result) == 4:
-            rows, delim, has_header, line_indices = result
+            rows, delim, has_header, extra = result
         else:
             rows, delim, has_header = result
-            line_indices = None
+            extra = None
 
         if not rows:
             self.log("No parseable rows found in file.", "ERROR")
@@ -205,10 +235,12 @@ class TranslatorEngine:
             writer = csv.writer(f)
             for i, row in enumerate(data_rows):
                 sid = f"ID_{i + 1:0{id_width}d}"
-                if delim in ('newline', 'subtitles'):
+                if delim in ('newline', 'subtitles', 'xml'):
                     text = row[0] if row else ""
-                    if delim == 'subtitles' and line_indices:
-                        mapping["mapping"][sid] = str(line_indices[i])
+                    if delim == 'subtitles' and extra:
+                        mapping["mapping"][sid] = str(extra[i])
+                    elif delim == 'xml' and extra:
+                        mapping["mapping"][sid] = extra[i]  # StringID
                     else:
                         mapping["mapping"][sid] = str(i)
                 else:
@@ -256,8 +288,34 @@ class TranslatorEngine:
             self.log(f"Error reading translated file: {e}", "ERROR")
             return None
 
+        # XML format: parse original, update translated entries by StringID
+        if orig_delim == 'xml':
+            base, ext = os.path.splitext(output_path)
+            if ext.lower() == '.csv':
+                output_path = base + '.xml'
+            orig_file = mapping.get("original_file", "")
+            if not orig_file or not os.path.exists(orig_file):
+                self.log(f"Original XML file not found: {orig_file}", "ERROR")
+                return None
+            tree = ET.parse(orig_file)
+            root = tree.getroot()
+            # Build reverse lookup: StringID -> ID_00XXX
+            stringid_to_idkey = {v: k for k, v in id_to_col1.items()}
+            updated = 0
+            for item in root.findall('.//LocalisableString'):
+                sid = item.get('StringID', '')
+                id_key = stringid_to_idkey.get(sid)
+                if id_key and id_key in translated:
+                    content = item.find('Content')
+                    if content is not None:
+                        content.text = translated[id_key]
+                        updated += 1
+            # Write with XML declaration
+            tree.write(output_path, encoding='utf-8', xml_declaration=True)
+            self.log(f"XML: Updated {updated} entries, wrote to {output_path}.")
+
         # Newline format: write one text per line, ordered by original line index
-        if orig_delim == 'newline':
+        elif orig_delim == 'newline':
             base, ext = os.path.splitext(output_path)
             if ext.lower() == '.csv':
                 output_path = base + '.txt'
