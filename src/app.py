@@ -25,7 +25,8 @@ class TranslatorApp(ctk.CTk):
         # Layout
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(1, weight=1)  # Settings/Glossary row expands
+        self.grid_rowconfigure(2, weight=1)  # Log expands
 
         # 1. File Selection Frame
         file_frame = ctk.CTkFrame(self)
@@ -54,13 +55,14 @@ class TranslatorApp(ctk.CTk):
         # 2. Settings Frame
         settings_frame = ctk.CTkFrame(self)
         settings_frame.grid(row=1, column=0, padx=20, pady=10, sticky="nsew")
+        settings_frame.grid_columnconfigure(1, weight=1)  # Entry column expands
 
         ctk.CTkLabel(settings_frame, text="2. API Settings", font=ctk.CTkFont(size=16, weight="bold")).grid(row=0, column=0, padx=10, pady=10, sticky="w")
         
         ctk.CTkLabel(settings_frame, text="API Key:").grid(row=1, column=0, padx=10, pady=5, sticky="w")
         self.api_key_var = tk.StringVar()
-        ctk.CTkEntry(settings_frame, textvariable=self.api_key_var, width=300).grid(row=1, column=1, padx=10, pady=5)
-        
+        ctk.CTkEntry(settings_frame, textvariable=self.api_key_var).grid(row=1, column=1, padx=10, pady=5, sticky="ew")
+
         ctk.CTkLabel(settings_frame, text="Model:").grid(row=2, column=0, padx=10, pady=5, sticky="w")
         self.model_var = ctk.StringVar(value="gemini-3.5-flash")
         
@@ -79,25 +81,27 @@ class TranslatorApp(ctk.CTk):
 
         ctk.CTkLabel(settings_frame, text="Base URL (Local LLM):").grid(row=3, column=0, padx=10, pady=5, sticky="w")
         self.base_url_var = tk.StringVar(value="http://localhost:1234/v1/chat/completions")
-        ctk.CTkEntry(settings_frame, textvariable=self.base_url_var, width=300).grid(row=3, column=1, padx=10, pady=5)
-        
+        ctk.CTkEntry(settings_frame, textvariable=self.base_url_var).grid(row=3, column=1, padx=10, pady=5, sticky="ew")
+
         ctk.CTkLabel(settings_frame, text="Custom Model Name:").grid(row=4, column=0, padx=10, pady=5, sticky="w")
         self.custom_model_var = tk.StringVar(value="llama-3-8b")
-        ctk.CTkEntry(settings_frame, textvariable=self.custom_model_var, width=300).grid(row=4, column=1, padx=10, pady=5)
+        ctk.CTkEntry(settings_frame, textvariable=self.custom_model_var).grid(row=4, column=1, padx=10, pady=5, sticky="ew")
 
         # 3. Glossary Frame
         glossary_frame = ctk.CTkFrame(self)
         glossary_frame.grid(row=1, column=1, padx=20, pady=10, sticky="nsew")
+        glossary_frame.grid_columnconfigure(0, weight=1)
+        glossary_frame.grid_rowconfigure(4, weight=1)  # Textbox row expands
 
         ctk.CTkLabel(glossary_frame, text="3. Glossary & Prompt", font=ctk.CTkFont(size=16, weight="bold")).grid(row=0, column=0, padx=10, pady=10, sticky="w")
-        
+
         ctk.CTkLabel(glossary_frame, text="Canary Words (comma separated):").grid(row=1, column=0, padx=10, pady=5, sticky="w")
         self.canary_var = tk.StringVar()
-        ctk.CTkEntry(glossary_frame, textvariable=self.canary_var, width=350).grid(row=2, column=0, padx=10, pady=5)
-        
+        ctk.CTkEntry(glossary_frame, textvariable=self.canary_var).grid(row=2, column=0, padx=10, pady=5, sticky="ew")
+
         ctk.CTkLabel(glossary_frame, text="Custom Glossary (e.g. Sword=ดาบ):").grid(row=3, column=0, padx=10, pady=5, sticky="w")
-        self.glossary_text = ctk.CTkTextbox(glossary_frame, width=450, height=250)
-        self.glossary_text.grid(row=4, column=0, padx=10, pady=5)
+        self.glossary_text = ctk.CTkTextbox(glossary_frame)
+        self.glossary_text.grid(row=4, column=0, padx=10, pady=(5, 10), sticky="nsew")
 
         # 4. Log/Terminal Frame
         log_frame = ctk.CTkFrame(self)
