@@ -46,7 +46,7 @@ class TranslatorApp(ctk.CTk):
 
         self.convert_format_var = ctk.StringVar(value="Auto-detect")
         ctk.CTkOptionMenu(file_frame, variable=self.convert_format_var, width=170,
-                          values=["Auto-detect", "CSV/TSV (delimited)", "TXT (one per line)", "XML (game stringtable)", "Subtitles (untranslated only)"]).grid(row=2, column=1, padx=5, pady=(0, 10))
+                          values=["Auto-detect", "CSV/TSV (delimited)", "TXT (one per line)", "XML (game stringtable)", "Subtitles (untranslated only)", "Fix garbled text (AI)"]).grid(row=2, column=1, padx=5, pady=(0, 10))
 
         ctk.CTkButton(file_frame, text="Convert", width=75, fg_color="#1565C0", command=self.convert_file).grid(row=2, column=2, padx=(10, 2), pady=(0, 10))
         ctk.CTkButton(file_frame, text="Restore", width=75, fg_color="#6A1B9A", command=self.restore_file).grid(row=2, column=3, padx=2, pady=(0, 10))
@@ -156,7 +156,7 @@ class TranslatorApp(ctk.CTk):
         fmt = self.convert_format_var.get()
         if fmt == "XML (game stringtable)":
             filetypes = [("XML files", "*.xml"), ("All files", "*.*")]
-        elif fmt in ("TXT (one per line)", "Subtitles (untranslated only)"):
+        elif fmt in ("TXT (one per line)", "Subtitles (untranslated only)", "Fix garbled text (AI)"):
             filetypes = [("Text files", "*.txt"), ("All files", "*.*")]
         else:
             filetypes = [("CSV/TSV files", "*.csv;*.tsv;*.txt"), ("All files", "*.*")]
@@ -256,6 +256,11 @@ class TranslatorApp(ctk.CTk):
             force_delim = "subtitles"
         elif fmt == "XML (game stringtable)":
             force_delim = "xml"
+        elif fmt == "Fix garbled text (AI)":
+            force_delim = "newline"
+
+        if fmt == "Fix garbled text (AI)":
+            self.update_log("Note: Edit system_prompt.txt to instruct AI to fix encoding errors (e.g. remove stray ¡ characters).")
 
         self.update_log(f"Converting file to standard format (mode: {fmt})...")
         result_path, mapping_path = self.engine.convert_to_standard(input_path, output_path, force_delim=force_delim)
