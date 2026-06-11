@@ -17,6 +17,7 @@ class TranslatorApp(ctk.CTk):
 
         self.engine = TranslatorEngine(log_callback=self.update_log, progress_callback=self.update_progress)
         self.config_file = "config.json"
+        self._fix_mode = False
         
         self.setup_ui()
         self.load_config()
@@ -258,9 +259,10 @@ class TranslatorApp(ctk.CTk):
             force_delim = "xml"
         elif fmt == "Fix garbled text (AI)":
             force_delim = "newline"
+            self._fix_mode = True
 
         if fmt == "Fix garbled text (AI)":
-            self.update_log("Note: Edit system_prompt.txt to instruct AI to fix encoding errors (e.g. remove stray ¡ characters).")
+            self.update_log("Fix mode: will use system_prompt_fix.txt for AI text cleanup.")
 
         self.update_log(f"Converting file to standard format (mode: {fmt})...")
         result_path, mapping_path = self.engine.convert_to_standard(input_path, output_path, force_delim=force_delim)
@@ -315,8 +317,20 @@ class TranslatorApp(ctk.CTk):
         self.log_box.configure(state="normal")
         self.log_box.delete("1.0", "end")
         self.log_box.configure(state="disabled")
+        # Auto-switch to fix prompt if Fix garbled text mode was used
+        if self._fix_mode:
+            fix_prompt_file = "system_prompt_fix.txt"
+            if os.path.exists(fix_prompt_file):
+                try:
+                    with open(fix_prompt_file, 'r', encoding='utf-8') as f:
+                        self.sys_prompt_base = f.read().strip()
+                    self.update_log("Using system_prompt_fix.txt for text cleanup mode.")
+                except Exception:
+                    pass
+            self._fix_mode = False
+
         self.update_log("Starting Analysis & Translation...")
-        
+
         config = {
             "api_key": self.api_key_var.get(),
             "model": self.model_var.get(),
