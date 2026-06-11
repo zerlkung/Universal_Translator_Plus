@@ -47,7 +47,7 @@ class TranslatorApp(ctk.CTk):
 
         self.convert_format_var = ctk.StringVar(value="Auto-detect")
         ctk.CTkOptionMenu(file_frame, variable=self.convert_format_var, width=170,
-                          values=["Auto-detect", "CSV/TSV (delimited)", "TXT (one per line)", "XML (game stringtable)", "Subtitles (untranslated only)", "Fix garbled text (AI)"]).grid(row=2, column=1, padx=5, pady=(0, 10))
+                          values=["Auto-detect", "CSV/TSV (delimited)", "CSV 3-col (key,source,trans)", "TXT (one per line)", "XML (game stringtable)", "Subtitles (untranslated only)", "Fix garbled text (AI)"]).grid(row=2, column=1, padx=5, pady=(0, 10))
 
         ctk.CTkButton(file_frame, text="Convert", width=75, fg_color="#1565C0", command=self.convert_file).grid(row=2, column=2, padx=(10, 2), pady=(0, 10))
         ctk.CTkButton(file_frame, text="Restore", width=75, fg_color="#6A1B9A", command=self.restore_file).grid(row=2, column=3, padx=2, pady=(0, 10))
@@ -255,6 +255,8 @@ class TranslatorApp(ctk.CTk):
             force_delim = "newline"
         elif fmt == "Subtitles (untranslated only)":
             force_delim = "subtitles"
+        elif fmt == "CSV 3-col (key,source,trans)":
+            force_delim = "csv3col"
         elif fmt == "XML (game stringtable)":
             force_delim = "xml"
         elif fmt == "Fix garbled text (AI)":

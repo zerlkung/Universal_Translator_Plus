@@ -102,7 +102,8 @@ build.bat
 | 2026-05-30 | **XML mode:** Convert/Restore ไฟล์ XML game StringTable (27K+ entries) |
 | 2026-05-30 | **UI Layout:** Browse ขวา, Convert/Restore/Clear กลุ่มขวา, ไฟล์กรองตาม format |
 | 2026-05-30 | **Flexible UI:** Glossary/Settings frames ขยายตาม fullscreen |
-| 2026-06-03 | **Fix garbled text:** โหมด AI ตรวจ/แก้ไขตัวอักษรเพี้ยนจาก export (เช่น `¡` ในข้อความไทย) |
+| 2026-06-03 | **Fix garbled text:** โหมด AI ตรวจ/แก้ไขตัวอักษรเพี้ยนจาก export (auto-load prompt) |
+| 2026-06-03 | **CSV 3-col:** รองรับ format key,source,translation (Spider-Man PC) |
 
 ### รูปแบบไฟล์ที่รองรับ
 

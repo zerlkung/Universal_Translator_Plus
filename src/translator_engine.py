@@ -125,18 +125,65 @@ class TranslatorEngine:
         self.log(f"XML: {len(rows)} entries extracted from {len(items)} total.")
         return rows, 'xml', False, string_ids
 
+    def _parse_csv_3col(self, file_path):
+        """Parse a 3-column CSV (key,source,translation).
+        Returns (rows, delimiter, has_header, keys).
+        """
+        delim = self.detect_delimiter(file_path)
+        with self._read_file(file_path) as f:
+            reader = csv.reader(f, delimiter=delim)
+            all_rows = [row for row in reader if any(c.strip() for c in row)]
+
+        if not all_rows:
+            return [], ',', False, []
+
+        # Detect header
+        has_header = self._looks_like_header(all_rows[0]) or (
+            len(all_rows[0]) >= 3 and all_rows[0][0].strip().lower() == 'key')
+        header_row = all_rows[0] if has_header else None
+        data_rows = all_rows[1:] if has_header else all_rows
+
+        # Extract rows where source has text and translation is empty
+        rows = []
+        keys = []
+        skipped_empty = 0
+        skipped_done = 0
+        for r in data_rows:
+            if len(r) < 2:
+                continue
+            key = r[0].strip() if r[0] else ''
+            source = r[1].strip() if len(r) > 1 else ''
+            translation = r[2].strip() if len(r) > 2 else ''
+
+            if not source:
+                skipped_empty += 1
+                continue
+            if translation and re.search(r'[฀-๿]', translation):
+                skipped_done += 1
+                continue
+
+            rows.append([source])
+            keys.append(key)
+
+        self.log(f"CSV 3-col: {len(rows)} need translation ({skipped_empty} empty, "
+                 f"{skipped_done} already translated) from {len(data_rows)} total rows.")
+        return rows, 'csv3col', False, keys  # has_header=False: header already stripped
+
     def _try_parse_rows(self, file_path, force_delim=None):
         """Try to parse a file with auto-detected delimiter. Returns (rows, delimiter, has_header).
 
         If force_delim is set, skips auto-detection and uses the given delimiter.
-        Valid values: None (auto), ',', '\t', '|', 'whitespace', 'newline', 'subtitles', 'xml'.
-        Note: 'subtitles'/'xml' returns 4-tuple (rows, delim, has_header, indices/ids).
+        Valid values: None (auto), ',', '\t', '|', 'whitespace', 'newline', 'subtitles', 'xml', 'csv3col'.
+        Note: 'subtitles'/'xml'/'csv3col' returns 4-tuple (rows, delim, has_header, indices/ids/keys).
         """
         if force_delim == 'subtitles':
             return self._filter_untranslated_lines(file_path)
 
         if force_delim == 'xml':
             return self._parse_xml_all(file_path)
+
+        if force_delim == 'csv3col':
+            return self._parse_csv_3col(file_path)
 
         if force_delim == 'newline':
             with self._read_file(file_path) as f:
@@ -224,18 +271,27 @@ class TranslatorEngine:
             "mapping": {},
         }
         mapping["original_file"] = os.path.abspath(input_path)
+        if delim == 'csv3col' and extra:
+            # _parse_csv_3col already stripped header; store it from original
+            with self._read_file(input_path) as f:
+                reader = csv.reader(f, delimiter=self.detect_delimiter(input_path))
+                first = next(reader, None)
+            if first and len(first) >= 3 and first[0].strip().lower() == 'key':
+                mapping["header"] = first
 
         id_width = max(5, len(str(len(data_rows))))
         with open(output_path, 'w', encoding='utf-8', newline='') as f:
             writer = csv.writer(f)
             for i, row in enumerate(data_rows):
                 sid = f"ID_{i + 1:0{id_width}d}"
-                if delim in ('newline', 'subtitles', 'xml'):
+                if delim in ('newline', 'subtitles', 'xml', 'csv3col'):
                     text = row[0] if row else ""
                     if delim == 'subtitles' and extra:
                         mapping["mapping"][sid] = str(extra[i])
                     elif delim == 'xml' and extra:
                         mapping["mapping"][sid] = extra[i]  # StringID
+                    elif delim == 'csv3col' and extra:
+                        mapping["mapping"][sid] = extra[i]  # original key
                     else:
                         mapping["mapping"][sid] = str(i)
                 else:
@@ -283,8 +339,36 @@ class TranslatorEngine:
             self.log(f"Error reading translated file: {e}", "ERROR")
             return None
 
+        # CSV 3-col format: write key,source,translation with translations filled
+        if orig_delim == 'csv3col':
+            orig_file = mapping.get("original_file", "")
+            if not orig_file or not os.path.exists(orig_file):
+                self.log(f"Original 3-col file not found: {orig_file}", "ERROR")
+                return None
+            delim = self.detect_delimiter(orig_file)
+            with self._read_file(orig_file) as f:
+                reader = csv.reader(f, delimiter=delim)
+                all_rows = [row for row in reader]
+            # Build reverse lookup: key -> translated text
+            key_to_trans = {}
+            for id_key, orig_key in id_to_col1.items():
+                if id_key in translated:
+                    key_to_trans[orig_key] = translated[id_key]
+            updated = 0
+            with open(output_path, 'w', encoding='utf-8', newline='') as f:
+                writer = csv.writer(f, delimiter=delim)
+                for row in all_rows:
+                    if len(row) >= 3 and row[0].strip() in key_to_trans:
+                        row[2] = key_to_trans[row[0].strip()]
+                        updated += 1
+                    # Pad to 3 columns if needed
+                    while len(row) < 3:
+                        row.append('')
+                    writer.writerow(row)
+            self.log(f"CSV 3-col: Updated {updated} translation cells, wrote {len(all_rows)} rows.")
+
         # XML format: parse original, update translated entries by StringID
-        if orig_delim == 'xml':
+        elif orig_delim == 'xml':
             base, ext = os.path.splitext(output_path)
             if ext.lower() == '.csv':
                 output_path = base + '.xml'
