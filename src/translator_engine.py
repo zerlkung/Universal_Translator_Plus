@@ -74,6 +74,9 @@ class TranslatorEngine:
             return False
         if stripped.isdigit() or stripped.lstrip('-').isdigit():
             return False
+        # Skip ID lines like "Id: [0x002F4C90]"
+        if re.match(r'^Id:\s*\[0x[0-9A-Fa-f]+\]', stripped):
+            return False
         # Already has Thai characters → already translated
         if re.search(r'[฀-๿]', stripped):
             return False
